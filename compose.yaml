@@ -1,1 +1,41 @@
-services: { }
+version: '3.8'
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: vcs-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: vcs_db
+      MYSQL_USER: vcs_user
+      MYSQL_PASSWORD: vcs_password
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    restart: unless-stopped
+    networks:
+      - vcs-network
+
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    container_name: vcs-phpmyadmin
+    environment:
+      PMA_HOST: mysql
+      PMA_PORT: 3306
+      PMA_USER: root
+      PMA_PASSWORD: rootpassword
+    ports:
+      - "8081:80"
+    restart: unless-stopped
+    depends_on:
+      - mysql
+    networks:
+      - vcs-network
+
+volumes:
+  mysql_data:
+
+networks:
+  vcs-network:
+    driver: bridge
