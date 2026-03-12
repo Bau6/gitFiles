@@ -32,6 +32,14 @@ function History({ repoId, onBack }) {
         }
     };
 
+    const downloadAllFiles = (commitId) => {
+        window.open(`http://localhost:8080/api/commits/${commitId}/download-all`);
+    };
+
+    const downloadFile = (fileId, filename) => {
+        window.open(`http://localhost:8080/api/commits/files/${fileId}/download`);
+    };
+
     if (loading) return <div>Загрузка...</div>;
 
     return (
@@ -51,18 +59,23 @@ function History({ repoId, onBack }) {
                                 <th>Дата</th>
                                 <th>Автор</th>
                                 <th>Сообщение</th>
-                                <th></th>
+                                <th colSpan="2">Действия</th>
                             </tr>
                             </thead>
                             <tbody>
                             {commits.map(commit => (
                                 <tr key={commit.id}>
                                     <td>{new Date(commit.createdAt).toLocaleString()}</td>
-                                    <td>{commit.author.username}</td>
+                                    <td>{commit.author?.username || 'Неизвестно'}</td>
                                     <td>{commit.message}</td>
                                     <td>
                                         <button onClick={() => loadCommitFiles(commit.id)}>
-                                            Просмотр
+                                            Просмотр файлов
+                                        </button>
+                                    </td>
+                                    <td>
+                                        <button onClick={() => downloadAllFiles(commit.id)}>
+                                            Скачать всё
                                         </button>
                                     </td>
                                 </tr>
@@ -74,22 +87,32 @@ function History({ repoId, onBack }) {
                     {selectedCommit && (
                         <div style={{ flex: 1 }}>
                             <h3>Файлы в коммите</h3>
-                            <table>
-                                <thead>
-                                <tr>
-                                    <th>Путь</th>
-                                    <th>Имя файла</th>
-                                </tr>
-                                </thead>
-                                <tbody>
-                                {commitFiles.map((cf, idx) => (
-                                    <tr key={idx}>
-                                        <td>{cf.filePathInRepo}</td>
-                                        <td>{cf.file.filename}</td>
+                            {commitFiles.length === 0 ? (
+                                <p>В этом коммите нет файлов</p>
+                            ) : (
+                                <table>
+                                    <thead>
+                                    <tr>
+                                        <th>Путь</th>
+                                        <th>Имя файла</th>
+                                        <th>Действие</th>
                                     </tr>
-                                ))}
-                                </tbody>
-                            </table>
+                                    </thead>
+                                    <tbody>
+                                    {commitFiles.map((cf, idx) => (
+                                        <tr key={idx}>
+                                            <td>{cf.filePathInRepo}</td>
+                                            <td>{cf.file?.filename || 'Неизвестно'}</td>
+                                            <td>
+                                                <button onClick={() => downloadFile(cf.file.id, cf.file.filename)}>
+                                                    Скачать
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                    </tbody>
+                                </table>
+                            )}
                         </div>
                     )}
                 </div>

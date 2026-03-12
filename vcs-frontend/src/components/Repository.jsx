@@ -76,6 +76,10 @@ function Repository({ repoId, userId, onBack, onShowHistory }) {
         }
     };
 
+    const downloadFile = (fileId, filename) => {
+        window.open(`http://localhost:8080/api/commits/files/${fileId}/download`);
+    };
+
     if (loading) return <div>Загрузка...</div>;
     if (!repo) return <div>Репозиторий не найден</div>;
 
@@ -139,15 +143,21 @@ function Repository({ repoId, userId, onBack, onShowHistory }) {
                         <th>Имя файла</th>
                         <th>Размер</th>
                         <th>Тип</th>
+                        <th>Действия</th>
                     </tr>
                     </thead>
                     <tbody>
                     {files.map((cf, index) => (
                         <tr key={index}>
                             <td>{cf.filePathInRepo}</td>
-                            <td>{cf.file.filename}</td>
-                            <td>{cf.file.fileSize} байт</td>
-                            <td>{cf.file.mimeType}</td>
+                            <td>{cf.file?.filename || 'Неизвестно'}</td>
+                            <td>{cf.file?.fileSize || 0} байт</td>
+                            <td>{cf.file?.mimeType || 'Неизвестно'}</td>
+                            <td>
+                                <button onClick={() => downloadFile(cf.file.id, cf.file.filename)}>
+                                    Скачать
+                                </button>
+                            </td>
                         </tr>
                     ))}
                     </tbody>

@@ -22,7 +22,6 @@ public class Commit {
 
     @ManyToOne
     @JoinColumn(name = "author_id", nullable = false)
-    @JsonIgnore
     private User author;
 
     @ManyToOne
