@@ -22,10 +22,10 @@ public class FileStorageService {
     @Autowired
     private Path fileStoragePath;
 
-    /**
-     * Сохранение файла на диск и в БД
-     * @return сохраненная сущность File (существующая или новая)
-     */
+
+    // сохранение файла на диск и в БД
+    // @return сохраненная сущность File (существующая или новая)
+
     public File saveFile(MultipartFile multipartFile) {
         try {
             String hash = HashUtil.calculateSha256(multipartFile);
@@ -56,9 +56,9 @@ public class FileStorageService {
         }
     }
 
-    /**
-     * Загрузка файла с диска
-     */
+
+    // загрузка файла с диска
+
     public byte[] loadFile(File file) {
         try {
             Path path = fileStoragePath.resolve(file.getStoragePath());
@@ -68,9 +68,9 @@ public class FileStorageService {
         }
     }
 
-    /**
-     * Проверка существования файла по хэшу
-     */
+
+    // проверка существования файла по хэшу
+
     public boolean fileExists(String hash) {
         return fileRepository.findByFileHash(hash).isPresent();
     }
