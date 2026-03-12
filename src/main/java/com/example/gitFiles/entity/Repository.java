@@ -1,5 +1,6 @@
 package com.example.gitFiles.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -23,12 +24,13 @@ public class Repository {
 
     @ManyToOne
     @JoinColumn(name = "owner_id", nullable = false)
+    @JsonIgnore
     private User owner;
 
     @OneToMany(mappedBy = "repository")
+    @JsonIgnore
     private List<Commit> commits;
 
-    // Конструкторы ИСПРАВЛЕНЫ
     public Repository() {}
 
     public Repository(String name, String description, User owner) {

@@ -1,5 +1,6 @@
 package com.example.gitFiles.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import java.time.LocalDateTime;
 
@@ -13,6 +14,7 @@ public class CommitFile {
 
     @ManyToOne
     @JoinColumn(name = "commit_id", nullable = false)
+    @JsonIgnore
     private Commit commit;
 
     @ManyToOne

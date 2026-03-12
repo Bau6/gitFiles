@@ -1,5 +1,6 @@
 package com.example.gitFiles.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -25,9 +26,11 @@ public class User {
     private LocalDateTime createdAt;
 
     @OneToMany(mappedBy = "owner")
+    @JsonIgnore
     private List<Repository> repositories;
 
     @OneToMany(mappedBy = "author")
+    @JsonIgnore
     private List<Commit> commits;
 
     public User() {}

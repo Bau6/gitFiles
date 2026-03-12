@@ -1,5 +1,6 @@
 package com.example.gitFiles.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -21,13 +22,16 @@ public class Commit {
 
     @ManyToOne
     @JoinColumn(name = "author_id", nullable = false)
+    @JsonIgnore
     private User author;
 
     @ManyToOne
     @JoinColumn(name = "repository_id", nullable = false)
+    @JsonIgnore
     private Repository repository;
 
     @OneToMany(mappedBy = "commit", cascade = CascadeType.ALL, orphanRemoval = true)
+    @JsonIgnore
     private List<CommitFile> commitFiles = new ArrayList<>();
 
     public Commit() {}
