@@ -16,14 +16,22 @@ function Register({ onRegister }) {
             params.append('password', password);
             params.append('email', email);
 
-            await API.post('/users', params);
+            // ✅ ИСПРАВЛЕНО: добавили /register
+            const response = await API.post('/users/register', params);
+
+            // Можно использовать response.data, если нужно
             setMessage('Регистрация успешна! Теперь можно войти.');
             setError('');
             setUsername('');
             setPassword('');
             setEmail('');
+
+            // Если хотите автоматически переключиться на форму входа
+            // setTimeout(() => onRegister(), 2000);
+
         } catch (err) {
-            setError('Ошибка регистрации');
+            console.error('Детали ошибки:', err.response?.data || err.message);
+            setError(err.response?.data?.message || 'Ошибка регистрации');
             setMessage('');
         }
     };

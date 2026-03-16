@@ -18,7 +18,9 @@ function Login({ onLogin }) {
             });
 
             if (response.data.success) {
-                onLogin(response.data.userId, 'dummy-token');
+                localStorage.setItem('userId', response.data.userId);
+                localStorage.setItem('token', response.data.token); // Сохраняем токен!
+                onLogin(response.data.userId, response.data.token);
             } else {
                 setError(response.data.message);
             }

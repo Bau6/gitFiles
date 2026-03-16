@@ -13,7 +13,7 @@ function Repositories({ userId, onSelectRepo, onShowHistory }) {
 
     const loadRepos = async () => {
         try {
-            const response = await API.get(`/repositories/user/${userId}`);
+            const response = await API.get('/repositories/my');
             setRepos(response.data);
         } catch (err) {
             console.error('Ошибка загрузки репозиториев', err);
