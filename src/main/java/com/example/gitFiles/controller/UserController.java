@@ -93,4 +93,26 @@ public class UserController {
             ));
         }
     }
+
+    @GetMapping("/all")
+    public ResponseEntity<?> getAllUsers() {
+        try {
+            // Получаем текущего пользователя для проверки авторизации
+            User currentUser = userService.getCurrentUser();
+
+            // Получаем всех пользователей
+            java.util.List<User> users = userService.getAllUsers();
+
+            // Возвращаем только безопасные поля (без паролей)
+            return ResponseEntity.ok(users.stream().map(user -> Map.of(
+                    "id", user.getId(),
+                    "username", user.getUsername(),
+                    "email", user.getEmail()
+            )));
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body(Map.of(
+                    "error", e.getMessage()
+            ));
+        }
+    }
 }

@@ -4,7 +4,6 @@ import com.example.gitFiles.entity.*;
 import com.example.gitFiles.repository.CommitFileRepository;
 import com.example.gitFiles.repository.CommitRepository;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -29,12 +28,18 @@ public class CommitService {
     @Autowired
     private UserService userService;
 
+    @Autowired
+    private PermissionService permissionService;
+
     @Transactional
     public Commit createCommit(String message, Long repositoryId,
                                List<MultipartFile> files, List<String> filePaths) {
 
+        // Получаем текущего пользователя
         User author = userService.getCurrentUser();
-        Repository repository = repositoryService.getRepository(repositoryId);
+
+        // Проверяем права на запись через репозиторий
+        Repository repository = repositoryService.getRepositoryForWrite(repositoryId);
 
         Commit commit = new Commit(message, author, repository);
         commit = commitRepository.save(commit);
@@ -51,7 +56,7 @@ public class CommitService {
     }
 
     public List<Commit> getRepositoryCommits(Long repositoryId) {
-        // Проверяем доступ через repositoryService.getRepository()
+        // Проверяем доступ на чтение
         Repository repo = repositoryService.getRepository(repositoryId);
         return commitRepository.findByRepositoryOrderByCreatedAtDesc(repo);
     }

@@ -1,31 +1,51 @@
-import React, { useState, useEffect } from 'react';
+import React, {useState, useEffect} from 'react';
 import API from '../api';
+import RepositoryPermissions from "./RepositoryPermissions.jsx";
 
-function Repository({ repoId, userId, onBack, onShowHistory }) {
+function Repository({repoId, userId, onBack, onShowHistory}) {
     const [repo, setRepo] = useState(null);
-    const [serverFiles, setServerFiles] = useState([]); // файлы на сервере
-    const [localFiles, setLocalFiles] = useState([]);   // файлы локально
+    const [serverFiles, setServerFiles] = useState([]);
+    const [localFiles, setLocalFiles] = useState([]);
     const [commitMessage, setCommitMessage] = useState('');
     const [loading, setLoading] = useState(true);
     const [syncing, setSyncing] = useState(false);
     const [workspacePath, setWorkspacePath] = useState('');
-    const [workspaceHandle, setWorkspaceHandle] = useState(null); // для File System Access API
+    const [workspaceHandle, setWorkspaceHandle] = useState(null);
+    const [showPermissions, setShowPermissions] = useState(false);
+    const [userRole, setUserRole] = useState('NONE'); // Роль текущего пользователя
 
     useEffect(() => {
         loadRepository();
-        // Проверяем, есть ли сохраненный доступ к папке
         loadSavedWorkspace();
+        loadUserRole(); // Загружаем роль пользователя
     }, [repoId]);
 
-    // Загружаем сохраненную информацию о рабочей папке
+    // Загружаем роль пользователя в этом репозитории
+    const loadUserRole = async () => {
+        try {
+            const response = await API.get(`/repositories/${repoId}/permissions/my-role`);
+            setUserRole(response.data.role);
+            console.log('Роль пользователя:', response.data.role);
+        } catch (err) {
+            console.error('Ошибка загрузки роли', err);
+        }
+    };
+
+    // Проверка прав на запись (OWNER или WRITER)
+    const canWrite = () => {
+        return userRole === 'OWNER' || userRole === 'WRITER';
+    };
+
+    // Проверка прав на управление доступом (только OWNER)
+    const canManage = () => {
+        return userRole === 'OWNER';
+    };
+
     const loadSavedWorkspace = async () => {
         const savedPath = localStorage.getItem(`workspace-${repoId}`);
         if (savedPath) {
             setWorkspacePath(savedPath);
-            // Пытаемся восстановить доступ
             try {
-                // Восстановление доступа к папке - сложная тема
-                // Пока просто показываем путь
                 console.log('Сохраненный путь:', savedPath);
             } catch (err) {
                 console.error('Не удалось восстановить доступ к папке');
@@ -33,26 +53,18 @@ function Repository({ repoId, userId, onBack, onShowHistory }) {
         }
     };
 
-    // Инициализация локальной рабочей папки
     const initializeWorkspace = async () => {
         try {
-            // Запрашиваем у пользователя разрешение на доступ к папке
             const dirHandle = await window.showDirectoryPicker({
                 id: `repo-${repoId}`,
                 mode: 'readwrite',
                 startIn: 'documents'
             });
 
-            // Сохраняем handle и путь
             setWorkspaceHandle(dirHandle);
             setWorkspacePath(dirHandle.name);
-
-            // Сохраняем путь в localStorage для информации
             localStorage.setItem(`workspace-${repoId}`, dirHandle.name);
-
-            // Сканируем локальные файлы
             await scanLocalFiles(dirHandle);
-
         } catch (err) {
             console.error('Ошибка доступа к папке:', err);
             if (err.name !== 'AbortError') {
@@ -61,7 +73,6 @@ function Repository({ repoId, userId, onBack, onShowHistory }) {
         }
     };
 
-    // Сканирование локальных файлов
     const scanLocalFiles = async (dirHandle) => {
         const files = [];
 
@@ -94,7 +105,6 @@ function Repository({ repoId, userId, onBack, onShowHistory }) {
             const repoRes = await API.get(`/repositories/${repoId}`);
             setRepo(repoRes.data);
 
-            // Загружаем файлы с сервера (последний коммит)
             const commitsRes = await API.get(`/commits/repository/${repoId}`);
             if (commitsRes.data.length > 0) {
                 const lastCommit = commitsRes.data[0];
@@ -108,19 +118,17 @@ function Repository({ repoId, userId, onBack, onShowHistory }) {
         }
     };
 
-    // Сравнение локальных и серверных файлов
     const getFileStatus = (serverFile) => {
         if (!serverFile.file) return 'unknown';
 
-        const serverPath = serverFile.filePathInRepo.slice(1); // убираем ведущий слеш
+        const serverPath = serverFile.filePathInRepo.slice(1);
         const localFile = localFiles.find(f => f.path === serverPath);
 
-        if (!localFile) return 'missing'; // файла нет локально
-        if (localFile.size !== serverFile.file.fileSize) return 'modified'; // изменен
-        return 'synced'; // синхронизирован
+        if (!localFile) return 'missing';
+        if (localFile.size !== serverFile.file.fileSize) return 'modified';
+        return 'synced';
     };
 
-    // Получить локальные файлы, которых нет на сервере
     const getNewLocalFiles = () => {
         const serverPaths = new Set(
             serverFiles.map(cf => cf.filePathInRepo.slice(1))
@@ -128,7 +136,6 @@ function Repository({ repoId, userId, onBack, onShowHistory }) {
         return localFiles.filter(f => !serverPaths.has(f.path));
     };
 
-    // Push - отправить локальные изменения на сервер
     const pushToServer = async () => {
         if (!workspaceHandle) {
             alert('Сначала выберите локальную папку');
@@ -142,8 +149,7 @@ function Repository({ repoId, userId, onBack, onShowHistory }) {
             formData.append('message', commitMessage || 'Push local changes');
             formData.append('repositoryId', repoId);
 
-            // Добавляем ВСЕ локальные файлы (или только измененные/новые)
-            const filesToUpload = localFiles; // можно фильтровать по статусу
+            const filesToUpload = localFiles;
 
             for (const file of filesToUpload) {
                 const fileBlob = await file.handle.getFile();
@@ -154,11 +160,10 @@ function Repository({ repoId, userId, onBack, onShowHistory }) {
             console.log(`Отправка ${filesToUpload.length} файлов...`);
 
             const response = await API.post('/commits', formData, {
-                headers: { 'Content-Type': 'multipart/form-data' }
+                headers: {'Content-Type': 'multipart/form-data'}
             });
 
             if (response.status === 200) {
-                // Перезагружаем серверные файлы
                 await loadRepository();
                 setCommitMessage('');
                 alert('Изменения успешно отправлены на сервер!');
@@ -171,30 +176,25 @@ function Repository({ repoId, userId, onBack, onShowHistory }) {
         }
     };
 
-    // Функция для создания файла в локальной папке
     const saveFileToWorkspace = async (fileData, relativePath) => {
         if (!workspaceHandle) {
             throw new Error('Рабочая папка не выбрана');
         }
 
-        // Разбиваем путь на части
         const pathParts = relativePath.split('/').filter(p => p);
         const fileName = pathParts.pop();
 
-        // Находим или создаем нужные подпапки
         let currentHandle = workspaceHandle;
         for (const part of pathParts) {
-            currentHandle = await currentHandle.getDirectoryHandle(part, { create: true });
+            currentHandle = await currentHandle.getDirectoryHandle(part, {create: true});
         }
 
-        // Создаем файл
-        const fileHandle = await currentHandle.getFileHandle(fileName, { create: true });
+        const fileHandle = await currentHandle.getFileHandle(fileName, {create: true});
         const writable = await fileHandle.createWritable();
         await writable.write(fileData);
         await writable.close();
     };
 
-    // Pull - скачать файлы с сервера в локальную папку
     const pullFromServer = async () => {
         if (!workspaceHandle) {
             alert('Сначала выберите локальную папку');
@@ -220,26 +220,19 @@ function Repository({ repoId, userId, onBack, onShowHistory }) {
 
             console.log(`Загрузка ${filesRes.data.length} файлов...`);
 
-            // Создаем или обновляем файлы в локальной папке
             for (const cf of filesRes.data) {
                 if (!cf.file) continue;
 
-                const relativePath = cf.filePathInRepo.slice(1); // убираем ведущий слеш
-
-                // Скачиваем файл с сервера
+                const relativePath = cf.filePathInRepo.slice(1);
                 const response = await API.get(`/commits/files/${cf.file.id}/download`, {
                     responseType: 'blob'
                 });
 
-                // Сохраняем в локальную папку
                 await saveFileToWorkspace(response.data, relativePath);
-
                 console.log('Сохранен файл:', relativePath);
             }
 
-            // Пересканируем локальные файлы
             await scanLocalFiles(workspaceHandle);
-
             alert('Файлы успешно загружены с сервера!');
         } catch (err) {
             console.error('Ошибка pull', err);
@@ -256,15 +249,34 @@ function Repository({ repoId, userId, onBack, onShowHistory }) {
 
     return (
         <div>
-            <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', flexWrap: 'wrap' }}>
+            <div style={{display: 'flex', gap: '10px', marginBottom: '20px', flexWrap: 'wrap', alignItems: 'center'}}>
                 <button onClick={onBack}>← Назад к репозиториям</button>
                 <button onClick={onShowHistory}>История версий</button>
-                {!workspaceHandle && (
-                    <button onClick={initializeWorkspace} style={{ backgroundColor: '#28a745' }}>
+
+                {/* Отображаем роль пользователя */}
+                {userRole !== 'NONE' && (
+                    <span style={{
+                        padding: '4px 8px',
+                        borderRadius: '4px',
+                        background: userRole === 'OWNER' ? '#6f42c1' : (userRole === 'WRITER' ? '#28a745' : '#17a2b8'),
+                        color: 'white',
+                        fontSize: '0.9em'
+                    }}>
+                        {userRole === 'OWNER' && '👑 Владелец'}
+                        {userRole === 'WRITER' && '✏️ Редактор'}
+                        {userRole === 'READER' && '👁️ Читатель'}
+                    </span>
+                )}
+
+                {/* Кнопка выбора папки - доступна всем с правами */}
+                {canWrite() && !workspaceHandle && (
+                    <button onClick={initializeWorkspace} style={{backgroundColor: '#28a745'}}>
                         📁 Выбрать локальную папку
                     </button>
                 )}
-                {workspaceHandle && (
+
+                {/* Кнопки для WRITER и OWNER */}
+                {canWrite() && workspaceHandle && (
                     <>
                         <button onClick={pullFromServer} disabled={syncing}>
                             {syncing ? '⏳ Синхронизация...' : '📥 Pull (скачать с сервера)'}
@@ -274,42 +286,58 @@ function Repository({ repoId, userId, onBack, onShowHistory }) {
                         </button>
                     </>
                 )}
+
+                {/* Кнопка для READER - только Pull, без выбора папки */}
+                {userRole === 'READER' && (
+                    <button onClick={pullFromServer} disabled={syncing} style={{backgroundColor: '#17a2b8'}}>
+                        {syncing ? '⏳ Загрузка...' : '📥 Скачать файлы (только чтение)'}
+                    </button>
+                )}
+
+                {/* Управление доступом - только для OWNER */}
+                {canManage() && (
+                    <button
+                        onClick={() => setShowPermissions(true)}
+                        style={{backgroundColor: '#6f42c1'}}
+                    >
+                        👥 Управление доступом
+                    </button>
+                )}
+
+                {showPermissions && canManage() && (
+                    <RepositoryPermissions
+                        repoId={repoId}
+                        onClose={() => setShowPermissions(false)}
+                    />
+                )}
             </div>
 
             <h2>{repo.name}</h2>
             <p>{repo.description}</p>
-            {workspacePath && (
+            {workspacePath && canWrite() && (
                 <p><strong>Локальная папка:</strong> {workspacePath}</p>
             )}
 
             <div className="card">
-                <h3>Статус файлов</h3>
-                <input
-                    type="text"
-                    placeholder="Сообщение для коммита"
-                    value={commitMessage}
-                    onChange={(e) => setCommitMessage(e.target.value)}
-                    style={{ width: '100%', marginBottom: '10px' }}
-                />
+                <h3>Файлы в репозитории</h3>
 
                 {serverFiles.length === 0 && localFiles.length === 0 ? (
-                    <p>Репозиторий пуст. Выберите локальную папку и сделайте push.</p>
+                    <p>Репозиторий пуст.</p>
                 ) : (
                     <table>
                         <thead>
                         <tr>
                             <th>Путь в репозитории</th>
-                            <th>На сервере</th>
-                            <th>Локально</th>
-                            <th>Статус</th>
+                            <th>Имя файла</th>
+                            <th>Размер</th>
+                            {canWrite() && <th>Статус</th>}
                         </tr>
                         </thead>
                         <tbody>
-                        {/* Файлы с сервера */}
                         {serverFiles.map((cf, index) => {
                             if (!cf.file) return null;
 
-                            const status = getFileStatus(cf);
+                            const status = canWrite() ? getFileStatus(cf) : null;
                             const statusColor = {
                                 synced: '#28a745',
                                 modified: '#fd7e14',
@@ -319,40 +347,45 @@ function Repository({ repoId, userId, onBack, onShowHistory }) {
                             return (
                                 <tr key={`server-${index}`}>
                                     <td>{cf.filePathInRepo}</td>
-                                    <td>{cf.file.filename} ({(cf.file.fileSize / 1024).toFixed(2)} KB)</td>
-                                    <td>
-                                        {status !== 'missing' ? (
-                                            localFiles.find(f => f.path === cf.filePathInRepo.slice(1))?.name || '—'
-                                        ) : '—'}
-                                    </td>
-                                    <td style={{ color: statusColor, fontWeight: 'bold' }}>
-                                        {status === 'synced' && '✓ Синхронизирован'}
-                                        {status === 'modified' && '⚠ Изменен локально'}
-                                        {status === 'missing' && '✗ Отсутствует локально'}
-                                    </td>
+                                    <td>{cf.file.filename}</td>
+                                    <td>{(cf.file.fileSize / 1024).toFixed(2)} KB</td>
+                                    {canWrite() && (
+                                        <td style={{color: statusColor, fontWeight: 'bold'}}>
+                                            {status === 'synced' && '✓ Синхронизирован'}
+                                            {status === 'modified' && '⚠ Изменен локально'}
+                                            {status === 'missing' && '✗ Отсутствует локально'}
+                                        </td>
+                                    )}
                                 </tr>
                             );
                         })}
-
-                        {/* Новые локальные файлы (которых нет на сервере) */}
-                        {newLocalFiles.map((file, index) => (
-                            <tr key={`local-${index}`} style={{ backgroundColor: '#e8f4e8' }}>
-                                <td style={{ fontStyle: 'italic' }}>{'/' + file.path} (новый)</td>
-                                <td>—</td>
-                                <td>{file.name} ({(file.size / 1024).toFixed(2)} KB)</td>
-                                <td style={{ color: '#17a2b8', fontWeight: 'bold' }}>
-                                    ✚ Новый локальный файл
-                                </td>
-                            </tr>
-                        ))}
                         </tbody>
                     </table>
                 )}
             </div>
 
-            {localFiles.length > 0 && (
-                <div style={{ marginTop: '10px', fontSize: '0.9em', color: '#666' }}>
-                    Всего локальных файлов: {localFiles.length}, на сервере: {serverFiles.length}
+            {/* Показываем новые локальные файлы только для WRITER/OWNER */}
+            {canWrite() && newLocalFiles.length > 0 && (
+                <div className="card" style={{marginTop: '20px'}}>
+                    <h4>Новые локальные файлы (не отправлены на сервер)</h4>
+                    <table>
+                        <thead>
+                        <tr>
+                            <th>Путь</th>
+                            <th>Имя файла</th>
+                            <th>Размер</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        {newLocalFiles.map((file, index) => (
+                            <tr key={`local-${index}`}>
+                                <td style={{fontStyle: 'italic'}}>{'/' + file.path}</td>
+                                <td>{file.name}</td>
+                                <td>{(file.size / 1024).toFixed(2)} KB</td>
+                            </tr>
+                        ))}
+                        </tbody>
+                    </table>
                 </div>
             )}
         </div>

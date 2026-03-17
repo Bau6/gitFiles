@@ -77,4 +77,8 @@ public class UserService implements UserDetailsService {
                 .getAuthentication().getName();
         return getUserByUsername(username);
     }
+
+    public java.util.List<User> getAllUsers() {
+        return userRepository.findAll();
+    }
 }
