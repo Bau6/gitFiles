@@ -9,52 +9,93 @@ function Repository({repoId, userId, onBack, onShowHistory}) {
     const [commitMessage, setCommitMessage] = useState('');
     const [loading, setLoading] = useState(true);
     const [syncing, setSyncing] = useState(false);
-    const [workspacePath, setWorkspacePath] = useState('');
-    const [workspaceHandle, setWorkspaceHandle] = useState(null);
+    const [workspaceInfo, setWorkspaceInfo] = useState({
+        path: '',
+        handle: null,
+        isInitialized: false
+    });
     const [showPermissions, setShowPermissions] = useState(false);
     const [userRole, setUserRole] = useState('NONE');
     const [pushMessage, setPushMessage] = useState('');
+    const [showFolderSelector, setShowFolderSelector] = useState(false);
 
     useEffect(() => {
         loadRepository();
         loadSavedWorkspace();
-        loadUserRole(); // Загружаем роль пользователя
+        loadUserRole();
     }, [repoId]);
 
-    // Загружаем роль пользователя в этом репозитории
     const loadUserRole = async () => {
         try {
             const response = await API.get(`/repositories/${repoId}/permissions/my-role`);
             setUserRole(response.data.role);
-            console.log('Роль пользователя:', response.data.role);
         } catch (err) {
             console.error('Ошибка загрузки роли', err);
         }
     };
 
-    // Проверка прав на запись (OWNER или WRITER)
     const canWrite = () => {
         return userRole === 'OWNER' || userRole === 'WRITER';
     };
 
-    // Проверка прав на управление доступом (только OWNER)
     const canManage = () => {
         return userRole === 'OWNER';
     };
 
     const loadSavedWorkspace = async () => {
-        const savedPath = localStorage.getItem(`workspace-${repoId}`);
-        if (savedPath) {
-            setWorkspacePath(savedPath);
-            try {
-                console.log('Сохраненный путь:', savedPath);
-            } catch (err) {
-                console.error('Не удалось восстановить доступ к папке');
+        try {
+            const savedWorkspace = localStorage.getItem(`workspace-${repoId}`);
+            if (savedWorkspace) {
+                const workspaceData = JSON.parse(savedWorkspace);
+                setWorkspaceInfo({
+                    ...workspaceInfo,
+                    path: workspaceData.path || '',
+                    isInitialized: workspaceData.isInitialized || false
+                });
+
+                // Пытаемся восстановить доступ к папке
+                if (workspaceData.isInitialized && canWrite()) {
+                    try {
+                        // Запрашиваем разрешение на доступ к папке
+                        const dirHandle = await window.showDirectoryPicker({
+                            id: `repo-${repoId}`,
+                            mode: 'readwrite',
+                            startIn: 'documents'
+                        });
+
+                        // Проверяем, что это та же папка
+                        if (dirHandle.name === workspaceData.path) {
+                            setWorkspaceInfo(prev => ({
+                                ...prev,
+                                handle: dirHandle,
+                                isInitialized: true
+                            }));
+                            await scanLocalFiles(dirHandle);
+                        } else {
+                            // Если папка другая, сбрасываем сохраненные данные
+                            localStorage.removeItem(`workspace-${repoId}`);
+                            setWorkspaceInfo({
+                                path: '',
+                                handle: null,
+                                isInitialized: false
+                            });
+                        }
+                    } catch (err) {
+                        console.log('Не удалось восстановить доступ к папке, потребуется повторный выбор');
+                        // Не сбрасываем путь, но помечаем что нужен повторный выбор
+                        setWorkspaceInfo(prev => ({
+                            ...prev,
+                            isInitialized: false
+                        }));
+                    }
+                }
             }
+        } catch (err) {
+            console.error('Ошибка загрузки сохраненной рабочей области', err);
         }
     };
 
-    const initializeWorkspace = async () => {
+    const initializeWorkspace = async (changeFolder = false) => {
         try {
             const dirHandle = await window.showDirectoryPicker({
                 id: `repo-${repoId}`,
@@ -62,15 +103,66 @@ function Repository({repoId, userId, onBack, onShowHistory}) {
                 startIn: 'documents'
             });
 
-            setWorkspaceHandle(dirHandle);
-            setWorkspacePath(dirHandle.name);
-            localStorage.setItem(`workspace-${repoId}`, dirHandle.name);
+            // Проверяем, не пустая ли папка (опционально)
+            const hasContent = await checkFolderContent(dirHandle);
+
+            const newWorkspaceInfo = {
+                handle: dirHandle,
+                path: dirHandle.name,
+                isInitialized: true
+            };
+
+            setWorkspaceInfo(newWorkspaceInfo);
+
+            // Сохраняем информацию о рабочей области
+            localStorage.setItem(`workspace-${repoId}`, JSON.stringify({
+                path: dirHandle.name,
+                isInitialized: true
+            }));
+
             await scanLocalFiles(dirHandle);
+
+            // Если папка не пустая, предлагаем синхронизироваться
+            if (hasContent) {
+                const shouldPull = window.confirm(
+                    'В выбранной папке найдены файлы. Хотите загрузить актуальные файлы с сервера?'
+                );
+                if (shouldPull) {
+                    await pullFromServer(true);
+                }
+            }
+
+            setShowFolderSelector(false);
         } catch (err) {
             console.error('Ошибка доступа к папке:', err);
             if (err.name !== 'AbortError') {
                 alert('Для работы с репозиторием необходимо выбрать папку');
             }
+        }
+    };
+
+    const checkFolderContent = async (dirHandle) => {
+        let hasContent = false;
+        for await (const entry of dirHandle.values()) {
+            hasContent = true;
+            break;
+        }
+        return hasContent;
+    };
+
+    const changeWorkspace = () => {
+        setShowFolderSelector(true);
+    };
+
+    const clearWorkspace = () => {
+        if (window.confirm('Вы уверены, что хотите отвязать локальную папку?')) {
+            localStorage.removeItem(`workspace-${repoId}`);
+            setWorkspaceInfo({
+                path: '',
+                handle: null,
+                isInitialized: false
+            });
+            setLocalFiles([]);
         }
     };
 
@@ -98,7 +190,6 @@ function Repository({repoId, userId, onBack, onShowHistory}) {
 
         await scanDir(dirHandle);
         setLocalFiles(files);
-        console.log('Найдено локальных файлов:', files.length);
     };
 
     const loadRepository = async () => {
@@ -127,6 +218,7 @@ function Repository({repoId, userId, onBack, onShowHistory}) {
 
         if (!localFile) return 'missing';
         if (localFile.size !== serverFile.file.fileSize) return 'modified';
+        if (localFile.lastModified > new Date(serverFile.file.uploadDate).getTime()) return 'modified';
         return 'synced';
     };
 
@@ -138,19 +230,18 @@ function Repository({repoId, userId, onBack, onShowHistory}) {
     };
 
     const pushToServer = async () => {
-        if (!workspaceHandle) {
+        if (!workspaceInfo.handle || !workspaceInfo.isInitialized) {
             alert('Сначала выберите локальную папку');
             await initializeWorkspace();
             return;
         }
 
-        // Если сообщение не введено, используем значение по умолчанию
         const messageToUse = pushMessage.trim() || 'Push local changes';
 
         setSyncing(true);
         try {
             const formData = new FormData();
-            formData.append('message', messageToUse);  // Используем сообщение
+            formData.append('message', messageToUse);
             formData.append('repositoryId', repoId);
 
             const filesToUpload = localFiles;
@@ -161,15 +252,13 @@ function Repository({repoId, userId, onBack, onShowHistory}) {
                 formData.append('paths', '/' + file.path);
             }
 
-            console.log(`Отправка ${filesToUpload.length} файлов с сообщением: "${messageToUse}"...`);
-
             const response = await API.post('/commits', formData, {
                 headers: {'Content-Type': 'multipart/form-data'}
             });
 
             if (response.status === 200) {
                 await loadRepository();
-                setPushMessage('');  // Очищаем сообщение
+                setPushMessage('');
                 alert('Изменения успешно отправлены на сервер!');
             }
         } catch (err) {
@@ -181,14 +270,14 @@ function Repository({repoId, userId, onBack, onShowHistory}) {
     };
 
     const saveFileToWorkspace = async (fileData, relativePath) => {
-        if (!workspaceHandle) {
+        if (!workspaceInfo.handle) {
             throw new Error('Рабочая папка не выбрана');
         }
 
         const pathParts = relativePath.split('/').filter(p => p);
         const fileName = pathParts.pop();
 
-        let currentHandle = workspaceHandle;
+        let currentHandle = workspaceInfo.handle;
         for (const part of pathParts) {
             currentHandle = await currentHandle.getDirectoryHandle(part, {create: true});
         }
@@ -199,10 +288,12 @@ function Repository({repoId, userId, onBack, onShowHistory}) {
         await writable.close();
     };
 
-    const pullFromServer = async () => {
-        if (!workspaceHandle) {
-            alert('Сначала выберите локальную папку');
-            await initializeWorkspace();
+    const pullFromServer = async (silent = false) => {
+        if (!workspaceInfo.handle || !workspaceInfo.isInitialized) {
+            if (!silent) {
+                alert('Сначала выберите локальную папку');
+                await initializeWorkspace();
+            }
             return;
         }
 
@@ -210,7 +301,7 @@ function Repository({repoId, userId, onBack, onShowHistory}) {
         try {
             const commitsRes = await API.get(`/commits/repository/${repoId}`);
             if (commitsRes.data.length === 0) {
-                alert('Репозиторий пуст');
+                if (!silent) alert('Репозиторий пуст');
                 return;
             }
 
@@ -218,11 +309,18 @@ function Repository({repoId, userId, onBack, onShowHistory}) {
             const filesRes = await API.get(`/commits/${lastCommit.id}/files`);
 
             if (filesRes.data.length === 0) {
-                alert('В последнем коммите нет файлов');
+                if (!silent) alert('В последнем коммите нет файлов');
                 return;
             }
 
-            console.log(`Загрузка ${filesRes.data.length} файлов...`);
+            // Проверяем, нет ли локальных изменений
+            const localChanges = serverFiles.filter(cf => getFileStatus(cf) === 'modified').length > 0;
+            if (localChanges && !silent) {
+                const proceed = window.confirm(
+                    'У вас есть несохраненные локальные изменения. При загрузке с сервера они могут быть перезаписаны. Продолжить?'
+                );
+                if (!proceed) return;
+            }
 
             for (const cf of filesRes.data) {
                 if (!cf.file) continue;
@@ -233,14 +331,17 @@ function Repository({repoId, userId, onBack, onShowHistory}) {
                 });
 
                 await saveFileToWorkspace(response.data, relativePath);
-                console.log('Сохранен файл:', relativePath);
             }
 
-            await scanLocalFiles(workspaceHandle);
-            alert('Файлы успешно загружены с сервера!');
+            await scanLocalFiles(workspaceInfo.handle);
+            if (!silent) {
+                alert('Файлы успешно загружены с сервера!');
+            }
         } catch (err) {
             console.error('Ошибка pull', err);
-            alert('Ошибка при загрузке: ' + (err.response?.data?.message || err.message));
+            if (!silent) {
+                alert('Ошибка при загрузке: ' + (err.response?.data?.message || err.message));
+            }
         } finally {
             setSyncing(false);
         }
@@ -257,7 +358,6 @@ function Repository({repoId, userId, onBack, onShowHistory}) {
                 <button onClick={onBack}>← Назад к репозиториям</button>
                 <button onClick={onShowHistory}>История версий</button>
 
-                {/* Отображаем роль пользователя */}
                 {userRole !== 'NONE' && (
                     <span style={{
                         padding: '4px 8px',
@@ -272,15 +372,67 @@ function Repository({repoId, userId, onBack, onShowHistory}) {
                     </span>
                 )}
 
-                {/* Кнопка выбора папки - доступна всем с правами */}
-                {canWrite() && !workspaceHandle && (
-                    <button onClick={initializeWorkspace} style={{backgroundColor: '#28a745'}}>
-                        📁 Выбрать локальную папку
-                    </button>
+                {/* Управление папкой для WRITER/OWNER */}
+                {canWrite() && (
+                    <div style={{display: 'flex', gap: '5px', alignItems: 'center'}}>
+                        {!workspaceInfo.isInitialized ? (
+                            <button onClick={() => initializeWorkspace()} style={{backgroundColor: '#28a745'}}>
+                                📁 Выбрать локальную папку
+                            </button>
+                        ) : (
+                            <>
+                                <button onClick={changeWorkspace} style={{backgroundColor: '#ffc107'}}>
+                                    🔄 Сменить папку
+                                </button>
+                                <button onClick={clearWorkspace} style={{backgroundColor: '#dc3545'}}>
+                                    🗑️ Отвязать папку
+                                </button>
+                            </>
+                        )}
+                    </div>
+                )}
+
+                {/* Диалог выбора папки */}
+                {showFolderSelector && canWrite() && (
+                    <div style={{
+                        position: 'fixed',
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        backgroundColor: 'rgba(0,0,0,0.5)',
+                        display: 'flex',
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        zIndex: 1000
+                    }}>
+                        <div style={{
+                            backgroundColor: 'white',
+                            padding: '20px',
+                            borderRadius: '8px',
+                            maxWidth: '500px'
+                        }}>
+                            <h3>Выбор локальной папки</h3>
+                            <p>Выберите действие:</p>
+                            <div style={{display: 'flex', flexDirection: 'column', gap: '10px'}}>
+                                <button onClick={() => {
+                                    initializeWorkspace(true);
+                                }} style={{padding: '10px'}}>
+                                    📁 Выбрать другую папку
+                                </button>
+                                <button onClick={clearWorkspace} style={{padding: '10px', backgroundColor: '#dc3545'}}>
+                                    🗑️ Отвязать текущую папку
+                                </button>
+                                <button onClick={() => setShowFolderSelector(false)} style={{padding: '10px'}}>
+                                    ❌ Отмена
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                 )}
 
                 {/* Кнопки для WRITER и OWNER */}
-                {canWrite() && workspaceHandle && (
+                {canWrite() && workspaceInfo.isInitialized && (
                     <div style={{
                         display: 'flex',
                         gap: '10px',
@@ -289,7 +441,8 @@ function Repository({repoId, userId, onBack, onShowHistory}) {
                         alignItems: 'center',
                         padding: '15px',
                         backgroundColor: '#f8f9fa',
-                        borderRadius: '4px'
+                        borderRadius: '4px',
+                        width: '100%'
                     }}>
                         <input
                             type="text"
@@ -305,7 +458,7 @@ function Repository({repoId, userId, onBack, onShowHistory}) {
                             }}
                         />
                         <button
-                            onClick={pullFromServer}
+                            onClick={() => pullFromServer()}
                             disabled={syncing}
                             style={{ flex: '0 0 auto' }}
                         >
@@ -313,7 +466,7 @@ function Repository({repoId, userId, onBack, onShowHistory}) {
                         </button>
                         <button
                             onClick={pushToServer}
-                            disabled={syncing || !pushMessage.trim()} // Отключаем, если нет сообщения
+                            disabled={syncing || !pushMessage.trim()}
                             style={{
                                 flex: '0 0 auto',
                                 backgroundColor: !pushMessage.trim() ? '#6c757d' : '#28a745'
@@ -324,14 +477,14 @@ function Repository({repoId, userId, onBack, onShowHistory}) {
                     </div>
                 )}
 
-                {/* Кнопка для READER - только Pull, без выбора папки */}
+                {/* Кнопка для READER */}
                 {userRole === 'READER' && (
-                    <button onClick={pullFromServer} disabled={syncing} style={{backgroundColor: '#17a2b8'}}>
+                    <button onClick={() => pullFromServer()} disabled={syncing} style={{backgroundColor: '#17a2b8'}}>
                         {syncing ? '⏳ Загрузка...' : '📥 Скачать файлы (только чтение)'}
                     </button>
                 )}
 
-                {/* Управление доступом - только для OWNER */}
+                {/* Управление доступом */}
                 {canManage() && (
                     <button
                         onClick={() => setShowPermissions(true)}
@@ -351,8 +504,23 @@ function Repository({repoId, userId, onBack, onShowHistory}) {
 
             <h2>{repo.name}</h2>
             <p>{repo.description}</p>
-            {workspacePath && canWrite() && (
-                <p><strong>Локальная папка:</strong> {workspacePath}</p>
+
+            {/* Информация о локальной папке */}
+            {canWrite() && workspaceInfo.path && (
+                <div style={{
+                    padding: '10px',
+                    backgroundColor: '#e9ecef',
+                    borderRadius: '4px',
+                    marginBottom: '15px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px'
+                }}>
+                    <span>📁 <strong>Локальная папка:</strong> {workspaceInfo.path}</span>
+                    {!workspaceInfo.isInitialized && (
+                        <span style={{color: '#dc3545'}}>(требуется подтверждение доступа)</span>
+                    )}
+                </div>
             )}
 
             <div className="card">
@@ -367,6 +535,7 @@ function Repository({repoId, userId, onBack, onShowHistory}) {
                             <th>Путь в репозитории</th>
                             <th>Имя файла</th>
                             <th>Размер</th>
+                            <th>Дата изменения</th>
                             {canWrite() && <th>Статус</th>}
                         </tr>
                         </thead>
@@ -386,6 +555,7 @@ function Repository({repoId, userId, onBack, onShowHistory}) {
                                     <td>{cf.filePathInRepo}</td>
                                     <td>{cf.file.filename}</td>
                                     <td>{(cf.file.fileSize / 1024).toFixed(2)} KB</td>
+                                    <td>{new Date(cf.file.uploadDate).toLocaleString()}</td>
                                     {canWrite() && (
                                         <td style={{color: statusColor, fontWeight: 'bold'}}>
                                             {status === 'synced' && '✓ Синхронизирован'}
@@ -401,7 +571,7 @@ function Repository({repoId, userId, onBack, onShowHistory}) {
                 )}
             </div>
 
-            {/* Показываем новые локальные файлы только для WRITER/OWNER */}
+            {/* Новые локальные файлы */}
             {canWrite() && newLocalFiles.length > 0 && (
                 <div className="card" style={{marginTop: '20px'}}>
                     <h4>Новые локальные файлы (не отправлены на сервер)</h4>
@@ -411,6 +581,7 @@ function Repository({repoId, userId, onBack, onShowHistory}) {
                             <th>Путь</th>
                             <th>Имя файла</th>
                             <th>Размер</th>
+                            <th>Дата изменения</th>
                         </tr>
                         </thead>
                         <tbody>
@@ -419,15 +590,26 @@ function Repository({repoId, userId, onBack, onShowHistory}) {
                                 <td style={{fontStyle: 'italic'}}>{'/' + file.path}</td>
                                 <td>{file.name}</td>
                                 <td>{(file.size / 1024).toFixed(2)} KB</td>
+                                <td>{new Date(file.lastModified).toLocaleString()}</td>
                             </tr>
                         ))}
                         </tbody>
                     </table>
                 </div>
             )}
+
+            {/* Управление видимостью */}
             {canManage() && (
-                <div style={{ marginLeft: 'auto', display: 'flex', gap: '10px', alignItems: 'center' }}>
-                    <span>Видимость:</span>
+                <div style={{
+                    marginTop: '20px',
+                    padding: '15px',
+                    backgroundColor: '#f8f9fa',
+                    borderRadius: '4px',
+                    display: 'flex',
+                    gap: '10px',
+                    alignItems: 'center'
+                }}>
+                    <span>Видимость репозитория:</span>
                     <select
                         value={repo.visibility || 'PRIVATE'}
                         onChange={async (e) => {
