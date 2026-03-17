@@ -12,7 +12,8 @@ function Repository({repoId, userId, onBack, onShowHistory}) {
     const [workspacePath, setWorkspacePath] = useState('');
     const [workspaceHandle, setWorkspaceHandle] = useState(null);
     const [showPermissions, setShowPermissions] = useState(false);
-    const [userRole, setUserRole] = useState('NONE'); // Роль текущего пользователя
+    const [userRole, setUserRole] = useState('NONE');
+    const [pushMessage, setPushMessage] = useState('');
 
     useEffect(() => {
         loadRepository();
@@ -143,10 +144,13 @@ function Repository({repoId, userId, onBack, onShowHistory}) {
             return;
         }
 
+        // Если сообщение не введено, используем значение по умолчанию
+        const messageToUse = pushMessage.trim() || 'Push local changes';
+
         setSyncing(true);
         try {
             const formData = new FormData();
-            formData.append('message', commitMessage || 'Push local changes');
+            formData.append('message', messageToUse);  // Используем сообщение
             formData.append('repositoryId', repoId);
 
             const filesToUpload = localFiles;
@@ -157,7 +161,7 @@ function Repository({repoId, userId, onBack, onShowHistory}) {
                 formData.append('paths', '/' + file.path);
             }
 
-            console.log(`Отправка ${filesToUpload.length} файлов...`);
+            console.log(`Отправка ${filesToUpload.length} файлов с сообщением: "${messageToUse}"...`);
 
             const response = await API.post('/commits', formData, {
                 headers: {'Content-Type': 'multipart/form-data'}
@@ -165,7 +169,7 @@ function Repository({repoId, userId, onBack, onShowHistory}) {
 
             if (response.status === 200) {
                 await loadRepository();
-                setCommitMessage('');
+                setPushMessage('');  // Очищаем сообщение
                 alert('Изменения успешно отправлены на сервер!');
             }
         } catch (err) {
@@ -277,14 +281,47 @@ function Repository({repoId, userId, onBack, onShowHistory}) {
 
                 {/* Кнопки для WRITER и OWNER */}
                 {canWrite() && workspaceHandle && (
-                    <>
-                        <button onClick={pullFromServer} disabled={syncing}>
+                    <div style={{
+                        display: 'flex',
+                        gap: '10px',
+                        marginBottom: '20px',
+                        flexWrap: 'wrap',
+                        alignItems: 'center',
+                        padding: '15px',
+                        backgroundColor: '#f8f9fa',
+                        borderRadius: '4px'
+                    }}>
+                        <input
+                            type="text"
+                            placeholder="Введите сообщение для коммита (обязательно)"
+                            value={pushMessage}
+                            onChange={(e) => setPushMessage(e.target.value)}
+                            style={{
+                                flex: '2',
+                                minWidth: '300px',
+                                padding: '10px',
+                                border: '1px solid #ced4da',
+                                borderRadius: '4px'
+                            }}
+                        />
+                        <button
+                            onClick={pullFromServer}
+                            disabled={syncing}
+                            style={{ flex: '0 0 auto' }}
+                        >
                             {syncing ? '⏳ Синхронизация...' : '📥 Pull (скачать с сервера)'}
                         </button>
-                        <button onClick={pushToServer} disabled={syncing}>
+                        <button
+                            onClick={pushToServer}
+                            disabled={syncing || !pushMessage.trim()} // Отключаем, если нет сообщения
+                            style={{
+                                flex: '0 0 auto',
+                                backgroundColor: !pushMessage.trim() ? '#6c757d' : '#28a745'
+                            }}
+                        >
                             {syncing ? '⏳ Синхронизация...' : '📤 Push (отправить на сервер)'}
                         </button>
-                    </>
+                    </div>
                 )}
 
                 {/* Кнопка для READER - только Pull, без выбора папки */}
@@ -386,6 +423,28 @@ function Repository({repoId, userId, onBack, onShowHistory}) {
                         ))}
                         </tbody>
                     </table>
+                </div>
+            )}
+            {canManage() && (
+                <div style={{ marginLeft: 'auto', display: 'flex', gap: '10px', alignItems: 'center' }}>
+                    <span>Видимость:</span>
+                    <select
+                        value={repo.visibility || 'PRIVATE'}
+                        onChange={async (e) => {
+                            try {
+                                const params = new URLSearchParams();
+                                params.append('visibility', e.target.value);
+                                const response = await API.post(`/repositories/${repoId}/visibility`, params);
+                                setRepo(response.data);
+                            } catch (err) {
+                                alert('Ошибка изменения видимости');
+                            }
+                        }}
+                        style={{ padding: '5px' }}
+                    >
+                        <option value="PRIVATE">🔒 Приватный</option>
+                        <option value="PUBLIC">🌍 Публичный</option>
+                    </select>
                 </div>
             )}
         </div>

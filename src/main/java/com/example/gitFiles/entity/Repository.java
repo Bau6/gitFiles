@@ -31,6 +31,9 @@ public class Repository {
     @JsonIgnore
     private List<Commit> commits;
 
+    @Column(nullable = false)
+    private String visibility = "PRIVATE";
+
     public Repository() {}
 
     public Repository(String name, String description, User owner) {
@@ -38,6 +41,7 @@ public class Repository {
         this.description = description;
         this.owner = owner;
         this.createdAt = LocalDateTime.now();
+        this.visibility = "PRIVATE";
     }
 
     // Геттеры и сеттеры
@@ -58,4 +62,7 @@ public class Repository {
 
     public List<Commit> getCommits() { return commits; }
     public void setCommits(List<Commit> commits) { this.commits = commits; }
+
+    public String getVisibility() { return visibility; }
+    public void setVisibility(String visibility) { this.visibility = visibility; }
 }

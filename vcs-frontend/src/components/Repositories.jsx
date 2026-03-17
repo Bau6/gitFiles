@@ -146,10 +146,7 @@ function Repositories({ userId, onSelectRepo, onShowHistory }) {
                                 <strong>{repo.name}</strong>
                             </td>
                             <td>{repo.description || '—'}</td>
-                            <td>
-                                {repo.owner?.username || 'Неизвестно'}
-                                {repo.owner?.id === userId && ' (вы)'}
-                            </td>
+                            <td>{repo.owner?.username || 'Неизвестно'}</td>
                             <td>
                                     <span style={{
                                         padding: '2px 6px',

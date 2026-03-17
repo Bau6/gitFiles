@@ -26,37 +26,56 @@ public class RepositoryService {
         return repositoryRepository.save(repository);
     }
 
-    /**
-     * Получить репозитории, где пользователь является владельцем
-     */
+    public Repository createRepository(String name, String description, String visibility) {
+        User currentUser = userService.getCurrentUser();
+        Repository repository = new Repository(name, description, currentUser);
+        repository.setVisibility(visibility);
+        return repositoryRepository.save(repository);
+    }
+
     public List<Repository> getUserRepositories(User user) {
         return repositoryRepository.findByOwner(user);
     }
 
-    /**
-     * Получить репозитории текущего пользователя (владеемые + доступные)
-     */
     public List<Repository> getCurrentUserRepositories() {
         User currentUser = userService.getCurrentUser();
-
-        // Владеемые репозитории
         List<Repository> owned = getUserRepositories(currentUser);
-
-        // Репозитории с доступом
         List<Repository> accessible = permissionService.getAccessibleRepositories();
-
-        // Объединяем и убираем дубликаты
         owned.addAll(accessible);
         return owned.stream().distinct().toList();
+    }
+
+    // НОВЫЙ МЕТОД: все публичные репозитории
+    public List<Repository> getPublicRepositories() {
+        return repositoryRepository.findByVisibility("PUBLIC");
+    }
+
+    // НОВЫЙ МЕТОД: все репозитории, доступные текущему пользователю (с учетом публичности)
+    public List<Repository> getAllAccessibleRepositories() {
+        User currentUser = userService.getCurrentUser();
+
+        // Публичные репозитории
+        List<Repository> publicRepos = repositoryRepository.findByVisibility("PUBLIC");
+
+        // Репозитории, где пользователь имеет доступ (свои + по разрешениям)
+        List<Repository> accessible = getCurrentUserRepositories();
+
+        // Объединяем
+        publicRepos.addAll(accessible);
+        return publicRepos.stream().distinct().toList();
     }
 
     public Repository getRepository(Long id) {
         Repository repo = repositoryRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Репозиторий не найден"));
 
-        // Проверяем доступ на чтение
-        permissionService.checkReadAccess(repo);
+        // Если репозиторий публичный, проверяем только при необходимости
+        if ("PUBLIC".equals(repo.getVisibility())) {
+            return repo;
+        }
 
+        // Если приватный - проверяем доступ
+        permissionService.checkReadAccess(repo);
         return repo;
     }
 
@@ -72,8 +91,14 @@ public class RepositoryService {
         return repo;
     }
 
+    // НОВЫЙ МЕТОД: изменить видимость
+    public Repository changeVisibility(Long id, String visibility) {
+        Repository repo = getRepositoryForManage(id);
+        repo.setVisibility(visibility);
+        return repositoryRepository.save(repo);
+    }
+
     public List<Repository> getAllRepositories() {
-        // Только для админов (пока заглушка)
         return repositoryRepository.findAll();
     }
 }
